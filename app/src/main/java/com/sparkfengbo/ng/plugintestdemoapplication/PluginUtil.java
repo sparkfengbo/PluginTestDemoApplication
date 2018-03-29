@@ -30,13 +30,11 @@ public class PluginUtil {
 
     /** 单例 **/
     private static PluginUtil sPluginUtil;
-
     private static final String DATA_RAW_INTENT = "data_raw_intent";
     /** Asset文件夹中APK文件名，测试写死 **/
     private final String mAPKFileName = "app-debug.apk";
     /** APK文件从Asset拷贝到手机本地的存储路径 **/
     private String mLocalApkCopyPath;
-
 
     public static PluginUtil getInst() {
         if (sPluginUtil == null) {
@@ -52,42 +50,16 @@ public class PluginUtil {
     private PluginUtil() {
 
     }
-
     /**
-     * 根据程序启动原理，Hook掉AMS在APP的代理，ActivityMangerNative的IActivityManager
+     * 当activity检查完成之后，Hook掉ActivityThread的H类型的handler，让我们优先处理intent
+     *
+     * 也就是将保存在intent的APK的intent信息还原回来
+     * 参考：
+     *
+     * <a href="http://weishu.me/2016/03/07/understand-plugin-framework-ams-pms-hook/">Android 插件化原理解析——Hook机制之AMS&PMS </>
+     *
+     *
      */
-    public void hookAMSNative() {
-        try {
-            Class<?> activeManagerNativeClass = Class.forName("android.app.ActivityManagerNative");
-
-            Field gDefaultFiled = activeManagerNativeClass.getDeclaredField("gDefault");
-
-            gDefaultFiled.setAccessible(true);
-
-            Object gDefault = gDefaultFiled.get(null);
-
-            /*****/
-
-            Class<?> singletonClass = Class.forName("android.util.Singleton");
-            Field instFiled = singletonClass.getDeclaredField("mInstance");
-            instFiled.setAccessible(true);
-
-            Object iActivetManagerInstance = instFiled.get(gDefault);
-
-            Class<?> iActivityManagerClass = Class.forName("android.app.IActivityManager");
-
-            Object amsNativeProxy = Proxy.newProxyInstance(Thread.currentThread().getContextClassLoader(), new
-                    Class[]{iActivityManagerClass}, new AMSNativeProxyHandler(iActivetManagerInstance));
-            instFiled.set(gDefault, amsNativeProxy);
-        } catch (ClassNotFoundException e) {
-            e.printStackTrace();
-        } catch (NoSuchFieldException e) {
-            e.printStackTrace();
-        } catch (IllegalAccessException e) {
-            e.printStackTrace();
-        }
-    }
-
     public void hookHHandler() {
         try {
             Class<?> activityThreadClass = Class.forName("android.app.ActivityThread");
@@ -150,7 +122,6 @@ public class PluginUtil {
                         if (stubIntent.getParcelableExtra(DATA_RAW_INTENT) instanceof  Intent) {
                             Intent rawIntent = stubIntent.getParcelableExtra(DATA_RAW_INTENT);
                             stubIntent.setComponent(rawIntent.getComponent());
-
                             intentField.set(activityRecordClient  , stubIntent);
                         }
                     }
@@ -163,6 +134,56 @@ public class PluginUtil {
         }
     }
 
+
+    /**
+     * 根据程序启动原理，Hook掉AMS在APP的代理，ActivityMangerNative的IActivityManager
+     *
+     * 关键在在于理解Hook的使用和寻找Hook点，这必须对Android的应用启动流程和Activity、Service等流程相当熟悉
+     *
+     * 参考文章：
+     *
+     *  <a href="http://weishu.me/2016/03/07/understand-plugin-framework-ams-pms-hook/">Android 插件化原理解析——Hook机制之AMS&PMS </>
+     *
+     *  <a href="http://weishu.me/2016/03/21/understand-plugin-framework-activity-management/">Android 插件化原理解析——Activity生命周期管理</>
+     */
+    public void hookAMSNative() {
+        try {
+            Class<?> activeManagerNativeClass = Class.forName("android.app.ActivityManagerNative");
+
+            Field gDefaultFiled = activeManagerNativeClass.getDeclaredField("gDefault");
+
+            gDefaultFiled.setAccessible(true);
+
+            Object gDefault = gDefaultFiled.get(null);
+
+            /*****/
+
+            Class<?> singletonClass = Class.forName("android.util.Singleton");
+            Field instFiled = singletonClass.getDeclaredField("mInstance");
+            instFiled.setAccessible(true);
+
+            Object iActivetManagerInstance = instFiled.get(gDefault);
+
+            Class<?> iActivityManagerClass = Class.forName("android.app.IActivityManager");
+
+            Object amsNativeProxy = Proxy.newProxyInstance(Thread.currentThread().getContextClassLoader(), new
+                    Class[]{iActivityManagerClass}, new AMSNativeProxyHandler(iActivetManagerInstance));
+            instFiled.set(gDefault, amsNativeProxy);
+        } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+        } catch (NoSuchFieldException e) {
+            e.printStackTrace();
+        } catch (IllegalAccessException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * AMS Native本地对象的代理，用来拦截startActivity方法，不同的API可能有不能的实现方式
+     *
+     * 原理是拦截startActivity方法，将原intent信息即想启动的APK中的信息保存在bundle中，然后替换为我们这个应用的空的Activity，以此绕过
+     * AMS的启动检查
+     */
     private class AMSNativeProxyHandler implements InvocationHandler {
 
         Object mRawIActivityManager;
@@ -173,15 +194,12 @@ public class PluginUtil {
 
         @Override
         public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
-
             Log.e("fengbo", "我进行代理了 ，代理的方法是 ： " + method.getName());
-
             /**
              * 需要处理 API23
              *
              * http://weishu.me/2016/03/21/understand-plugin-framework-activity-management/
              */
-
             if ("startActivity".equals(method.getName())) {
                 Log.e("fengbo", "你想干嘛？startActivity 呀？");
                 Intent rawIntent;
@@ -194,9 +212,7 @@ public class PluginUtil {
                 }
 
                 rawIntent = (Intent) args[index];
-
                 Intent stubIntent = new Intent();
-
                 String pkg = "com.sparkfengbo.ng.plugintestdemoapplication";
                 stubIntent.setComponent(new ComponentName(pkg, StubEmptyActivity.class.getCanonicalName()));
                 stubIntent.putExtra(DATA_RAW_INTENT, rawIntent);
@@ -208,9 +224,23 @@ public class PluginUtil {
         }
     }
 
-
     /**
-     * 通过DexClassLoader将apk中的dex添加到
+     * 通过DexClassLoader将apk中的dex与原DEX合并
+     *
+     *
+     * 参考链接： <a href="http://weishu.me/2016/04/05/understand-plugin-framework-classloader/">Android 插件化原理解析——插件加载机制</>
+     *
+     * 原理：
+     *
+     *  1.PathClassLoader只能加载已经安装或系统的dex文件，使用DexClassLoader可以加载jar、APK中的dex文件
+     *  2.系统中只存在两个ClassLoader，一个是BootClassLoader，另一个就是PathClassLoader
+     *  3.PathClassLoader的继承关系是PathClassLoader->BaseDexClassLoader;
+     *      BaseDexClassLoader中包含  DexPathList pathList 而 DexPathList包含 <DexPathList$Element>类型 Element[] dexElements的数组，
+     *      这个数组中保存dex的信息
+     *
+     *  4.将原dex的信息与我们加载的apk中的dex信息合并，设置到PathClassLoader的DexPathList中，当使用插件时就可以查找到类的信息了，但是此时还
+     *    不能使用资源。
+     *
      */
     public void loadAPK(Context context) {
         File file = new File(mLocalApkCopyPath);
@@ -224,7 +254,6 @@ public class PluginUtil {
 
         DexClassLoader dexClassLoader = new DexClassLoader(mLocalApkCopyPath, context.getCacheDir().getAbsolutePath()
                 , context.getCacheDir().getAbsolutePath(), pathClassLoader);
-
 
         try {
 
@@ -255,7 +284,7 @@ public class PluginUtil {
 
             Class<?> elementCls = pclDexElements.getClass().getComponentType();
 
-            Log.e("fengbo", "before combine " + Array.getLength(pclDexElements) + "   " + Array.getLength
+            Log.e("fengbo", "[BEFORE] combine PathClassLoader中的Element[]长度是：" + Array.getLength(pclDexElements) + "   DexClassLoader[]长度是：" + Array.getLength
                     (dclDexElements));
 
             int originDexEleListLength = Array.getLength(pclDexElements);
@@ -279,9 +308,8 @@ public class PluginUtil {
             pclDexElements = dexElements.get(pclPathList);
 
             //可以看到，我们最终的PathClassLoader下的dexElements变成了2
-            Log.e("fengbo", "after combine " + Array.getLength(pclDexElements) + "   " + Array.getLength
+            Log.e("fengbo", "[AFTER] combine PathClassLoader中的Element[]长度是：" + Array.getLength(pclDexElements) + "   DexClassLoader[]长度是：" + Array.getLength
                     (dclDexElements));
-
         } catch (NoSuchFieldException e) {
             e.printStackTrace();
         } catch (IllegalAccessException e) {
@@ -292,12 +320,11 @@ public class PluginUtil {
     }
 
     /**
-     * 将Asset文件夹下的 apk复制到 sdcard中
+     * 将Asset文件夹下的apk复制到sdcard中
      */
     public void copyAPKFileFromAssets(Context context) {
         mLocalApkCopyPath = context.getExternalCacheDir().getAbsolutePath() + File.separator + mAPKFileName;
         Log.e("fengbo", "mLocalApkCopyPath : " + mLocalApkCopyPath);
-
         InputStream in = null;
         FileOutputStream fos = null;
         try {
@@ -305,6 +332,7 @@ public class PluginUtil {
             File file = new File(mLocalApkCopyPath);
 
             if (file.exists()) {
+                //测试时经常替换APK，所以每次删除再拷贝
                 file.delete();
                 Log.e("fengbo", file.getAbsolutePath() + "  already exits and delete");
             } else {

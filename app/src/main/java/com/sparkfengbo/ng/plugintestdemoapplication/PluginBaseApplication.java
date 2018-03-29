@@ -23,25 +23,41 @@ public class PluginBaseApplication extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
-        Log.e("fengbo", "BaseApplicationonCreate");
     }
 
     @Override
     protected void attachBaseContext(Context base) {
         super.attachBaseContext(base);
-
-        //应该放在线程中去做
+        //拷贝应该放在线程中去做
         PluginUtil.getInst().copyAPKFileFromAssets(base);
         PluginUtil.getInst().loadAPK(base);
         dealResource(base);
         PluginUtil.getInst().hookHHandler();
         PluginUtil.getInst().hookAMSNative();
-//        PluginUtil.getInst().hookActivityResource(base);
-
     }
 
-    private void dealResource(Context context) {
 
+    /**
+     * 用来处理插件中的资源
+     *
+     *
+     * 原理
+     *
+     *  参考ContextImpl的构造方法中对mResources的构造（下面的博客参考的是5.0，我发现7.0的构造有修改）
+     *
+     * 尚未解决的问题：
+     *
+     *  如果插件中的layout中使用了v7包的组件，那么运行会报错:  error inflate
+     *
+     * 参考：
+     *  <a href="https://blog.csdn.net/yulong0809/article/details/59489396">Android插件化资源的使用及动态加载 附demo</>
+     *
+     *  这篇文章的代码地址是
+     *
+     *  <a href="https://github.com/ljqloveyou123/LiujiaqiAndroid">demo</>
+     * @param context
+     */
+    private void dealResource(Context context) {
         try {
             //创建我们自己的Resource
             String apkPath = PluginUtil.getInst().getLocalApkCopyPath();

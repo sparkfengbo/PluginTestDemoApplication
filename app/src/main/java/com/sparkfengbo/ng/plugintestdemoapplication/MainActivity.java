@@ -17,6 +17,9 @@ public class MainActivity extends Activity {
             @Override
             public void onClick(View view) {
                 Intent intent = new Intent();
+                /**
+                 * 设置要启动的APK中的intent信息
+                 */
                 intent.setComponent(new ComponentName("com.sparkfengbo.app", "com.sparkfengbo.app.android" +
                         ".PluginTestActivity"));
                 startActivity(intent);
