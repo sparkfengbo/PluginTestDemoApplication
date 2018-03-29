@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">PluginTestDemoApplication</string>
+    <string name="title_activity_stub_empty">StubEmptyActivity</string>
+</resources>
